@@ -1,4 +1,7 @@
 package datastreams
+import org.apache.flink.api.common.serialization.SimpleStringEncoder
+import org.apache.flink.core.fs.Path
+import org.apache.flink.streaming.api.functions.sink.filesystem.StreamingFileSink
 import org.apache.flink.streaming.api.scala._ // import TypeInformation for the data of your DataStreams
 
 object EssentalStreams {
@@ -50,6 +53,51 @@ object EssentalStreams {
 
   /*Exercise: FizzBuzz on Flink*/
 
+  case class FizzBuzzResult(n: Long, output: String)
+
+  def fizzBuzzExercise(): Unit = {
+    val env: StreamExecutionEnvironment =
+      StreamExecutionEnvironment.getExecutionEnvironment
+
+    val numbers = env.fromSequence(1, 30)
+
+    val fizzbuzz = numbers
+      .map[FizzBuzzResult] { (x: Long) =>
+        x match {
+          case n if n % 3 == 0 && n % 5 == 0 => FizzBuzzResult(n, "fizzbuzz")
+          case n if n % 3 == 0               => FizzBuzzResult(n, "fizz")
+          case n if n % 5 == 0               => FizzBuzzResult(n, "buzz")
+          case n                             => FizzBuzzResult(n, s"${n}")
+        }
+      }
+      .filter(_.output == "fizzbuzz")
+      .map(_.n)
+    fizzbuzz
+      .addSink(
+        StreamingFileSink
+          .forRowFormat(
+            new Path("output/streaming_sink"),
+            new SimpleStringEncoder[Long]("UTF-8")
+          )
+          .build()
+      )
+      .setParallelism(1)
+
+    env.execute()
+  }
+
+  //explicit transformations
+
+  def demoExplicitTransformations(): Unit = {
+    val env: StreamExecutionEnvironment =
+      StreamExecutionEnvironment.getExecutionEnvironment
+
+    val numbers = env.fromSequence(1, 30)
+
+    //map
+    val doubleNumbers = numbers.map(_ * 2)
+  }
+
   def main(args: Array[String]): Unit = {}
-  demoTransformation()
+  fizzBuzzExercise()
 }
