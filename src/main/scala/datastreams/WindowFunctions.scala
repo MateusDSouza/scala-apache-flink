@@ -9,9 +9,14 @@ import org.apache.flink.api.common.functions.AggregateFunction
 import org.apache.flink.streaming.api.scala._
 import org.apache.flink.streaming.api.scala.function.{
   AllWindowFunction,
-  ProcessAllWindowFunction
+  ProcessAllWindowFunction,
+  ProcessWindowFunction,
+  WindowFunction
 }
-import org.apache.flink.streaming.api.windowing.assigners.TumblingEventTimeWindows
+import org.apache.flink.streaming.api.windowing.assigners.{
+  SlidingProcessingTimeWindows,
+  TumblingEventTimeWindows
+}
 import org.apache.flink.streaming.api.windowing.windows.TimeWindow
 import org.apache.flink.streaming.api.windowing.time.Time
 import org.apache.flink.util.Collector
@@ -134,6 +139,77 @@ object WindowFunctions {
     env.execute()
   }
 
+  /*
+   * Keyed Streams
+   * */
+
+  //each element will be assigned to a "mini-stream" for its own key
+  val streamByType: KeyedStream[ServerEvent, String] =
+    eventStream.keyBy(e => e.getClass.getSimpleName)
+
+  //for every key, we will have a separate window allocation
+  val threeSecondsTumblingWindowsByType
+      : WindowedStream[ServerEvent, String, TimeWindow] = streamByType.window {
+    TumblingEventTimeWindows.of(Time.seconds(3))
+  }
+
+  class CountByWindow
+      extends WindowFunction[ServerEvent, String, String, TimeWindow] {
+    override def apply(
+        key: String,
+        window: TimeWindow,
+        input: Iterable[ServerEvent],
+        out: Collector[String]
+    ): Unit =
+      out.collect(s"$key, ${input.size}")
+  }
+
+  def demoCountByTypeByWindow(): Unit = {
+    val finalStream = threeSecondsTumblingWindowsByType.apply(new CountByWindow)
+    finalStream.print()
+    env.execute()
+  }
+
+  class CountByWindowV2
+      extends ProcessWindowFunction[ServerEvent, String, String, TimeWindow] {
+    override def process(
+        key: String,
+        context: Context,
+        elements: Iterable[ServerEvent],
+        out: Collector[String]
+    ): Unit =
+      out.collect(s"$key: ${context.window} ${elements.size}")
+  }
+
+  def demoCountByTypeByWindowV2(): Unit = {
+    val finalStream =
+      threeSecondsTumblingWindowsByType.process(new CountByWindowV2)
+    finalStream.print()
+    env.execute()
+  }
+
+  /** Sliding Windows
+    */
+
+  //How many players were registered every 3 seconds, UPDATED EVERY 1s?
+  // 0s-3s,1s-4s,2s-5s
+
+  def demoSlidingWindows(): Unit = {
+    val windowSize: Time = Time.seconds(3)
+    val slidingTime: Time = Time.seconds(1)
+    val slidingWindowsAll = eventStream.windowAll(
+      SlidingProcessingTimeWindows.of(windowSize, slidingTime)
+    )
+
+    //process the windowed with similar window functions
+
+    val registrationCountByWindow =
+      slidingWindowsAll.apply(new CountByWindowAll)
+  }
+
+  /** Session windows = group of events with NO MORE THAN a certain time gap in between events
+    */
+
   def main(args: Array[String]): Unit = {}
-  demoCountByWindow_v3()
+  demoCountByTypeByWindowV2()
 }
